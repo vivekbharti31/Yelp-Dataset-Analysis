@@ -1,0 +1,57 @@
+/*Q1*/
+register '/lib/elephant-bird-hadoop-compat-4.15.jar';
+register '/lib/elephant-bird-pig-4.15.jar';
+register '/lib/elephant-bird-core-4.15.jar';
+register '/lib/json-simple-1.1.1.jar';
+
+BUSINESS = load '/user/cloudera/business.json' USING com.twitter.elephantbird.pig.load.JsonLoader('-nestedLoad=true') AS (yelp: map[]);
+
+B = FOREACH BUSINESS GENERATE yelp#'city' as city, yelp#'categories' as categories, (float)yelp#'review_count' as review_count, (float)yelp#'stars' as stars;
+
+flattened = FOREACH B GENERATE city, FLATTEN(categories), review_count, stars;
+
+results = FOREACH(GROUP flattened BY (city,categories)) GENERATE FLATTEN (group) AS (city, categories), AVG(flattened.stars) AS Avg_stars, AVG(flattened.review_count) AS AVG_REVIEWS;
+
+/*Q3*/
+BUSINESS = load '/user/cloudera/business.json' USING com.twitter.elephantbird.pig.load.JsonLoader('-nestedLoad=true') AS (yelp: map[]);
+B = FOREACH BUSINESS GENERATE yelp#'city' as city, yelp#'categories' as categories, (float)yelp#'review_count' as review_count, (float)yelp#'stars' as stars, yelp#'attributes' as attributes;
+flattened = FOREACH B GENERATE city, FLATTEN(categories), review_count, stars, FLATTEN(attributes) as (attr: map[]);
+Filter_1 = FILTER flattened BY ((boolean)attr#’RestaurantTakeOut’ == True);
+binrange = FOREACH Filter_1 GENERATE stars, org.apache.pig.builtin.BagToString(TOBAG(categories)) as category;
+filters = FILTER binrange BY (category matches '.*Mexican.*');
+GROUP_ALL = GROUP filters ALL;
+avg_result = FOREACH GROUP_ALL GENERATE AVG(filters.stars);
+
+DUMP avg_result;
+
+
+/*Q4*/
+
+B = FOREACH BUSINESS GENERATE yelp#'categories' as categories, (float)yelp#'review_count' as review_count, (float)yelp#'stars' as stars, yelp#'business_id' as business_id,(float)yelp#'latitude' as latitude, (float)yelp#'longitude' as longitude;
+
+business_in_range = FILTER B BY (latitude<43.8100978) AND (latitude>43.580619) AND (longitude>-79.6086502075) AND (longitude<-79.2421203193);
+flattened = FOREACH business_in_range GENERATE FLATTEN(categories), review_count, stars;
+
+results = FOREACH(GROUP flattened BY (categories)) GENERATE FLATTEN (group) AS (categories), AVG(flattened.stars) AS Avg_stars, AVG(flattened.review_count) AS AVG_REVIEWS;
+
+
+/*Q5*/
+BUSINESS = load '/user/cloudera/business.json' USING com.twitter.elephantbird.pig.load.JsonLoader('-nestedLoad=true') AS (yelp: map[]);
+B = FOREACH BUSINESS GENERATE yelp#'categories' as categories, (float)yelp#'review_count' as review_count, (float)yelp#'stars' as stars, yelp#'business_id' as business_id,(float)yelp#'latitude' as latitude, (float)yelp#'longitude' as longitude;
+REVIEW = load '/user/cloudera/review.json' USING com.twitter.elephantbird.pig.load.JsonLoader('-nestedLoad=true') AS (review: map[]);
+R = FOREACH REVIEW GENERATE (float)review#'rating' as ratings, review#'business_id' as business_id, review#'date' as date, (float)review#'stars' as stars;
+business_in_range = FILTER B BY (latitude<43.8100978) AND (latitude>43.580619) AND (longitude>-79.6086502075) AND (longitude<-79.2421203193);
+binrange = FOREACH business_in_range GENERATE stars, business_id, org.apache.pig.builtin.BagToString(TOBAG(categories)) as category;
+filters = FILTER binrange BY (category matches '.*Food.*');
+joining = JOIN filters by business_id, R by business_id;
+top_join = FOREACH joining GENERATE $1 as business_id, (int)SUBSTRING($5, 5, 7) as month, $6 as stars;
+top_join1 = FILTER top_join BY (month<6);
+grouped = GROUP top_join1 by (business_id);
+flatting = FOREACH grouped GENERATE FLATTEN (group) as (business_id), AVG(top_join1.stars);
+ordered_desc = ORDER flatting by stars DESC;
+ordered_desc_10 = limit ordered_desc 10;
+ordered_asc = ORDER flatting by stars;
+ordered_asc_10 = limit ordered_asc 10;
+
+
+
