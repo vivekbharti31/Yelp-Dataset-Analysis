@@ -1,0 +1,70 @@
+%pyspark
+#Q1
+from pyspark.sql.functions import explode
+BUSINESS_EXPLODE = BUSINESS.withColumn("categories", explode(BUSINESS.categories))
+
+from pyspark.sql.functions import col, avg
+BUSINESS_EXPLODE_Q1 = BUSINESS_EXPLODE.groupby("city","categories").agg(avg("review_count"),avg("stars"))
+BUSINESS_EXPLODE_Q1.show()
+
+
+%pyspark
+#Q2
+BUSINESS_EXPLODE.groupby("city","state").pivot("categories").agg(avg("stars")).show()
+
+
+
+%pyspark
+#Q3
+BUSINESS_EXPLODE.createOrReplaceTempView("BUSINESS_EXPLODE")
+
+spark.sql("select avg(stars) from BUSINESS_EXPLODE where categories = 'Mexican' and attributes.RestaurantsTakeOut like '%true%'").show()
+
+
+%pyspark
+#Solution for Q4
+BUSINESS_EXPLODE.createOrReplaceTempView("BUSINESS_EXPLODE")
+BUSINESS_EXPLODE_LAT_LONG_RAD = spark.sql("select *, (latitude*3.14/180) lat_rad, (longitude*3.14/180) long_rad from BUSINESS_EXPLODE")
+
+BUSINESS_EXPLODE_LAT_LONG_RAD.createOrReplaceTempView("BUSINESS_EXPLODE_LAT_LONG_RAD")
+
+spark.sql("SELECT categories, avg(stars), avg(review_count) FROM BUSINESS_EXPLODE_LAT_LONG_RAD WHERE ACOS( SIN(lat_rad) * SIN(0.76189206903) + COS(lat_rad) * COS(0.76189206903) * COS(long_rad + 1.385498211 )) * 6371 <= 15 group by categories").show()
+
+
+%pyspark
+#Q4 Alternative Solution
+BUSINESS_EXPLODE_LAT_LONG_RAD = spark.sql("select *, (latitude*3.14/180) lat_rad, (longitude*3.14/180) long_rad from BUSINESS_EXPLODE")
+
+BUSINESS_EXPLODE_LAT_LONG_RAD.createOrReplaceTempView("BUSINESS_EXPLODE_LAT_LONG_RAD")
+
+BUSINESS_EXPLODE_LAT_LONG_RAD_DISTANCE = spark.sql("select *, ACOS( SIN(lat_rad) * SIN(0.76189206903) + COS(lat_rad) * COS(0.76189206903) * COS(long_rad + 1.385498211 )) * 6371 as Distance_KM from BUSINESS_EXPLODE_LAT_LONG_RAD")
+
+BUSINESS_EXPLODE_LAT_LONG_RAD_DISTANCE.createOrReplaceTempView("BUSINESS_EXPLODE_LAT_LONG_RAD_DISTANCE")
+
+
+spark.sql("SELECT categories, avg(stars), avg(review_count) FROM BUSINESS_EXPLODE_LAT_LONG_RAD_DISTANCE WHERE Distance_KM <= 15 group by categories").show()
+
+
+
+%pyspark
+#Solution for Q5
+
+BUSINESS_EXPLODE_LAT_LONG_RAD.createOrReplaceTempView("BUSINESS_EXPLODE_LAT_LONG_RAD")
+
+BUSINESS_FOOD_TORONTO = spark.sql("SELECT * FROM BUSINESS_EXPLODE_LAT_LONG_RAD WHERE ACOS( SIN(lat_rad) * SIN(0.76189206903) + COS(lat_rad) * COS(0.76189206903) * COS(long_rad + 1.385498211 )) * 6371 <= 15 AND categories = 'Food' ")
+
+BUSINESS_FOOD_TORONTO.createOrReplaceTempView("BUSINESS_FOOD_TORONTO")
+REVIEW.createOrReplaceTempView("REVIEW")
+
+top_10 = spark.sql("SELECT A.business_id, name, avg(B.stars) FROM BUSINESS_FOOD_TORONTO A LEFT JOIN REVIEW B ON A.business_id = B.business_id where month(date) in ('1','2','3','4','5') group by A.business_id, A.name order by avg(B.stars)desc limit 10")
+
+bottom_10 = spark.sql("SELECT A.business_id, name, avg(B.stars) FROM BUSINESS_FOOD_TORONTO A LEFT JOIN REVIEW B ON A.business_id = B.business_id where month(date) in ('1','2','3','4','5') group by A.business_id, A.name order by avg(B.stars) limit 10")
+
+top_10.createOrReplaceTempView("top_10")
+bottom_10.createOrReplaceTempView("bottom_10")
+
+union_table = spark.sql("select * from top_10 union select * from bottom_10")
+
+union_table.createOrReplaceTempView("union_table")
+
+spark.sql("select * from union_table").show()
